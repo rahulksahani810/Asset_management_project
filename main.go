@@ -22,9 +22,10 @@ type Admin struct {
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
-type Admin_session struct {
+// TODO it should be AdminSession
+type AdminSession struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
-	AdminId    uuid.UUID  `json:"Adminid,omitempty" db:"Admin_id"`
+	AdminId    uuid.UUID  `json:"AdminId,omitempty" db:"Admin_id"`
 	CreatedAt  time.Time  `json:"createdAt,omitempty" db:"created_at"`
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
@@ -37,7 +38,7 @@ type Asset struct {
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
-type Emplyoee struct {
+type Employee struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
 	Name       string     `json:"name,omitempty" db:"name"`
 	Email      string     `json:"email,omitempty" db:"email"`
@@ -46,10 +47,11 @@ type Emplyoee struct {
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
+// TODO db fields should be snake case
 type EmployeeAssetMapping struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
 	AssetId    string     `json:"assetid,omitempty" db:"assetid"`
-	EmplyoeeID string     `json:"emplyoeeid,omitempty" db:"emplyoeeid"`
+	EmployeeID string     `json:"emplyoeeid,omitempty" db:"emplyoeeid"`
 	CreatedAt  time.Time  `json:"createdAt,omitempty" db:"created_at"`
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
@@ -58,7 +60,8 @@ type EmployeeAssetMapping struct {
 
 func getAdmin(w http.ResponseWriter, r *http.Request) {
 	var admins []Admin
-	SQL := "select id, name, email,password, created_at, archived_at from admin"
+	//TODO only read unarchived admin
+	SQL := "select id, name, email, password, created_at, archived_at from admin"
 	err := DB.Select(&admins, SQL)
 	if err != nil {
 		fmt.Println("error reading users", err)
@@ -101,7 +104,8 @@ func deleteAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//*************************** Assets ************************************************************//////
+
+// *************************** Assets ************************************************************//////
 func getAsset(w http.ResponseWriter, r *http.Request) {
 	var assets []Asset
 	SQL := "select id, model, company, created_at, archived_at from assets"
@@ -146,9 +150,10 @@ func deleteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//*************************** Employee ************************************************************//////
+
+// *************************** Employee ************************************************************//////
 func getEmployee(w http.ResponseWriter, r *http.Request) {
-	var employees []Emplyoee
+	var employees []Employee
 	SQL := "select id, name, email,role, created_at, archived_at from employee"
 	err := DB.Select(&employees, SQL)
 	if err != nil {
@@ -159,7 +164,7 @@ func getEmployee(w http.ResponseWriter, r *http.Request) {
 	RespondJSON(w, http.StatusOK, employees)
 }
 func addEmployee(w http.ResponseWriter, r *http.Request) {
-	var body Emplyoee
+	var body Employee
 	if err := ParseBody(r.Body, &body); err != nil {
 		RespondJSON(w, http.StatusBadRequest, err)
 		return
@@ -175,7 +180,7 @@ func addEmployee(w http.ResponseWriter, r *http.Request) {
 	RespondJSON(w, http.StatusCreated, nil)
 }
 func deleteEmployee(w http.ResponseWriter, r *http.Request) {
-	var body Emplyoee
+	var body Employee
 	if err := ParseBody(r.Body, &body); err != nil {
 		fmt.Println("error parsing body", err)
 		RespondJSON(w, http.StatusBadRequest, err)
@@ -190,7 +195,8 @@ func deleteEmployee(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//*************************** Employee Asset Mapping ************************************************************//////
+
+// *************************** Employee Asset Mapping ************************************************************//////
 func getEmployeeAssetMapping(w http.ResponseWriter, r *http.Request) {
 	var employeeassetmappings []EmployeeAssetMapping
 	SQL := "select id, assetid, emplyoeeid, created_at, archived_at from employeeassetmapping"
@@ -208,9 +214,9 @@ func AssignEmployeeAsset(w http.ResponseWriter, r *http.Request) {
 		RespondJSON(w, http.StatusBadRequest, err)
 		return
 	}
-
+	//TODO check if asset is with another employee and if so, archive that
 	SQL := `insert into employeeassetmapping (id, assetid, emplyoeeid, created_at) values ($1, $2, $3, $4)`
-	_, err := DB.Queryx(SQL, uuid.New(), body.AssetId, body.EmplyoeeID, time.Now())
+	_, err := DB.Queryx(SQL, uuid.New(), body.AssetId, body.EmployeeID, time.Now())
 	if err != nil {
 		RespondJSON(w, http.StatusInternalServerError, err)
 		return
@@ -218,7 +224,7 @@ func AssignEmployeeAsset(w http.ResponseWriter, r *http.Request) {
 
 	RespondJSON(w, http.StatusCreated, nil)
 }
-func returnedAseet(w http.ResponseWriter, r *http.Request) {	
+func returnedAsset(w http.ResponseWriter, r *http.Request) {
 	var body EmployeeAssetMapping
 	if err := ParseBody(r.Body, &body); err != nil {
 		fmt.Println("error parsing body", err)
@@ -226,16 +232,17 @@ func returnedAseet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("body", body)
-	SQL := `update employeeassetmapping set archived_at = $1 where id = $2`
-	_, err := DB.Queryx(SQL, time.Now(), body.Id)
+	//TODO generally we tell that asset_id has been returned not the mapping id
+	SQL := `update employeeassetmapping set archived_at = $1 where asset_id = $2 and archived_at is null`
+	_, err := DB.Queryx(SQL, time.Now(), body.AssetId)
 	if err != nil {
 		RespondJSON(w, http.StatusInternalServerError, err)
 		return
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//***************************  MAIN ************************************************************//////
 
+//***************************  MAIN ************************************************************//////
 
 var DB *sqlx.DB
 
@@ -255,8 +262,11 @@ func main() {
 		return
 	}
 	router := chi.NewRouter()
-//**************************  ADMIN ************************************************************//////
+	//**************************  ADMIN ************************************************************//////
 
+	//TODO these should be a login path
+
+	//TODO These routes should be protected so that anybody should not be able to add admins
 	router.Route("/admin", func(r chi.Router) {
 		r.Get("/", getAdmin)
 		r.Post("/", addAdmin)
@@ -264,33 +274,40 @@ func main() {
 			AdminIdRouter.Delete("/", deleteAdmin)
 		})
 	})
-//**************************  ASSETS ************************************************************//////
+	//**************************  ASSETS ************************************************************//////
 
-	router.Route("/asset", func(r chi.Router) {	
+	//TODO again behind the auth
+	router.Route("/asset", func(r chi.Router) {
 		r.Get("/", getAsset)
 		r.Post("/", addAsset)
 		r.Route("/{id}", func(AssetIdRouter chi.Router) {
 			AssetIdRouter.Delete("/", deleteAsset)
 		})
 	})
-//**************************  EMPLOYEE ************************************************************//////
-    router.Route("/employee", func(r chi.Router) {
+
+	//**************************  EMPLOYEE ************************************************************//////
+	//TODO again behind the auth
+	router.Route("/employee", func(r chi.Router) {
 		r.Get("/", getEmployee)
 		r.Post("/", addEmployee)
 		r.Route("/{id}", func(EmployeeIdRouter chi.Router) {
 			EmployeeIdRouter.Delete("/", deleteEmployee)
 		})
 	})
-//**************************  EMPLOYEE ASSET MAPPING ************************************************************//////	
-    	router.Route("/employeeassetmapping", func(r chi.Router) {
+	//**************************  EMPLOYEE ASSET MAPPING ************************************************************//////
+	//TODO again behind the auth
+	router.Route("/employeeassetmapping", func(r chi.Router) {
 		r.Get("/", getEmployeeAssetMapping)
 		r.Post("/", AssignEmployeeAsset)
 		r.Route("/{id}", func(EmployeeAssetMappingIdRouter chi.Router) {
-			EmployeeAssetMappingIdRouter.Put("/returnedAseet", returnedAseet)
+			EmployeeAssetMappingIdRouter.Put("/returnedAsset", returnedAsset)
 		})
-		
-	})	
-	
+
+	})
+
+	//TODO get asset details by id -> asset details and asset history
+	//TODO get employee details by id -> employee details and all asset history
+	//TODO count API i.e. how many assets, how many in use
 
 	fmt.Println("starting server at port 8080")
 	http.ListenAndServe(":8080", router)
