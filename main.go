@@ -88,20 +88,22 @@ func addAdmin(w http.ResponseWriter, r *http.Request) {
 func deleteAdmin(w http.ResponseWriter, r *http.Request) {
 	var body Admin
 	if err := ParseBody(r.Body, &body); err != nil {
-		fmt.Println("error parsing body", err)
 		RespondJSON(w, http.StatusBadRequest, err)
 		return
 	}
-	fmt.Println("body", body)
-	SQL := `update admin set archived_at = $1 where id = $2`
-	_, err := DB.Queryx(SQL, time.Now(), body.Id)
+	SQL := `update admin set archived_at = now() where id = $1`
+	_, err := DB.Queryx(SQL, body.Id)
 	if err != nil {
-		RespondJSON(w, http.StatusInternalServerError, err)
+		fmt.Println("error archiving user", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	RespondJSON(w, http.StatusCreated, nil)
+	w.WriteHeader(http.StatusCreated)
+
+	RespondJSON(w, http.StatusOK, nil)
 }
-//*************************** Assets ************************************************************//////
+
+// *************************** Assets ************************************************************//////
 func getAsset(w http.ResponseWriter, r *http.Request) {
 	var assets []Asset
 	SQL := "select id, model, company, created_at, archived_at from assets"
@@ -146,7 +148,8 @@ func deleteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//*************************** Employee ************************************************************//////
+
+// *************************** Employee ************************************************************//////
 func getEmployee(w http.ResponseWriter, r *http.Request) {
 	var employees []Emplyoee
 	SQL := "select id, name, email,role, created_at, archived_at from employee"
@@ -190,7 +193,8 @@ func deleteEmployee(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//*************************** Employee Asset Mapping ************************************************************//////
+
+// *************************** Employee Asset Mapping ************************************************************//////
 func getEmployeeAssetMapping(w http.ResponseWriter, r *http.Request) {
 	var employeeassetmappings []EmployeeAssetMapping
 	SQL := "select id, assetid, emplyoeeid, created_at, archived_at from employeeassetmapping"
@@ -218,7 +222,7 @@ func AssignEmployeeAsset(w http.ResponseWriter, r *http.Request) {
 
 	RespondJSON(w, http.StatusCreated, nil)
 }
-func returnedAseet(w http.ResponseWriter, r *http.Request) {	
+func returnedAseet(w http.ResponseWriter, r *http.Request) {
 	var body EmployeeAssetMapping
 	if err := ParseBody(r.Body, &body); err != nil {
 		fmt.Println("error parsing body", err)
@@ -234,14 +238,14 @@ func returnedAseet(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondJSON(w, http.StatusCreated, nil)
 }
-//***************************  MAIN ************************************************************//////
 
+//***************************  MAIN ************************************************************//////
 
 var DB *sqlx.DB
 
 func main() {
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		"localhost", "5433", "postgres", "Dadmom810@", "assetmanagement")
+		"localhost", "5433", "postgres", "local", "assetmanagement")
 
 	var err error
 	DB, err = sqlx.Open("postgres", psqlInfo)
@@ -253,44 +257,45 @@ func main() {
 	if err != nil {
 		fmt.Println("Ping Panic", err)
 		return
+	} else {
+		fmt.Println("Connected to the Database")
 	}
 	router := chi.NewRouter()
-//**************************  ADMIN ************************************************************//////
+	//**************************  ADMIN ************************************************************//////
 
 	router.Route("/admin", func(r chi.Router) {
 		r.Get("/", getAdmin)
 		r.Post("/", addAdmin)
 		r.Route("/{id}", func(AdminIdRouter chi.Router) {
-			AdminIdRouter.Delete("/", deleteAdmin)
+			AdminIdRouter.Put("/", deleteAdmin)
 		})
 	})
-//**************************  ASSETS ************************************************************//////
+	//**************************  ASSETS ************************************************************//////
 
-	router.Route("/asset", func(r chi.Router) {	
+	router.Route("/asset", func(r chi.Router) {
 		r.Get("/", getAsset)
 		r.Post("/", addAsset)
 		r.Route("/{id}", func(AssetIdRouter chi.Router) {
 			AssetIdRouter.Delete("/", deleteAsset)
 		})
 	})
-//**************************  EMPLOYEE ************************************************************//////
-    router.Route("/employee", func(r chi.Router) {
+	//**************************  EMPLOYEE ************************************************************//////
+	router.Route("/employee", func(r chi.Router) {
 		r.Get("/", getEmployee)
 		r.Post("/", addEmployee)
 		r.Route("/{id}", func(EmployeeIdRouter chi.Router) {
 			EmployeeIdRouter.Delete("/", deleteEmployee)
 		})
 	})
-//**************************  EMPLOYEE ASSET MAPPING ************************************************************//////	
-    	router.Route("/employeeassetmapping", func(r chi.Router) {
+	//**************************  EMPLOYEE ASSET MAPPING ************************************************************//////
+	router.Route("/employeeassetmapping", func(r chi.Router) {
 		r.Get("/", getEmployeeAssetMapping)
 		r.Post("/", AssignEmployeeAsset)
 		r.Route("/{id}", func(EmployeeAssetMappingIdRouter chi.Router) {
 			EmployeeAssetMappingIdRouter.Put("/returnedAseet", returnedAseet)
 		})
-		
-	})	
-	
+
+	})
 
 	fmt.Println("starting server at port 8080")
 	http.ListenAndServe(":8080", router)
