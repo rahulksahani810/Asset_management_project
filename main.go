@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,22 +23,22 @@ type Admin struct {
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
-type Admin_session struct {
+type AdminSession struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
-	AdminId    uuid.UUID  `json:"Adminid,omitempty" db:"Admin_id"`
+	AdminId    uuid.UUID  `json:"Adminid,omitempty" db:"admin_id"`
 	CreatedAt  time.Time  `json:"createdAt,omitempty" db:"created_at"`
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
 type Asset struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
-	Model      string     `json:"Model,omitempty" db:"Model"`
+	Model      string     `json:"Model,omitempty" db:"model"`
 	Company    string     `json:"company,omitempty" db:"company"`
 	CreatedAt  time.Time  `json:"createdAt,omitempty" db:"created_at"`
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
-type Emplyoee struct {
+type Employee struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
 	Name       string     `json:"name,omitempty" db:"name"`
 	Email      string     `json:"email,omitempty" db:"email"`
@@ -48,12 +49,74 @@ type Emplyoee struct {
 
 type EmployeeAssetMapping struct {
 	Id         uuid.UUID  `json:"id,omitempty" db:"id"`
-	AssetId    string     `json:"assetid,omitempty" db:"assetid"`
-	EmplyoeeID string     `json:"emplyoeeid,omitempty" db:"emplyoeeid"`
+	AssetId    string     `json:"assetid,omitempty" db:"asset_id"`
+	EmployeeID string     `json:"emplyoeeid,omitempty" db:"employee_id"`
 	CreatedAt  time.Time  `json:"createdAt,omitempty" db:"created_at"`
 	ArchivedAt *time.Time `json:"archivedAt,omitempty" db:"archived_at"`
 }
 
+const adminContextKey = "adminContext"
+
+// ///******************Middleware************************************************************//////
+
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionToken := r.Header.Get("token")
+		adminId, err := getAdminIdForToken(sessionToken)
+		if err != nil {
+			RespondJSON(w, http.StatusUnauthorized, err)
+			return
+		}
+
+		r = r.WithContext(context.WithValue(r.Context(), adminContextKey, adminId))
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func getAdminIdForToken(sessionToken string) (string, error) {
+	SQL := `select admin_id from admin_session where id = $1 and archived_at is null`
+	var adminId string
+	err := DB.Get(&adminId, SQL, sessionToken)
+	return adminId, err
+}
+
+type loginRequest struct {
+	Email    string `json:"email,omitempty" db:"email"`
+	Password string `json:"password" db:"password"`
+}
+
+type response struct {
+	Token string `json:"token"`
+}
+
+func login(w http.ResponseWriter, r *http.Request) {
+	var body loginRequest
+	if err := ParseBody(r.Body, &body); err != nil {
+		RespondJSON(w, http.StatusBadRequest, err)
+		return
+	}
+
+	SQL := `select id from admin where email = $1 and password = $2`
+	var adminId string
+	err := DB.Get(&adminId, SQL, body.Email, body.Password)
+	if err != nil {
+		RespondJSON(w, http.StatusUnauthorized, err)
+		return
+	}
+
+	SQL = `insert into admin_session (id, admin_id) values ($1, $2)`
+	sessionId := uuid.New()
+	_, err = DB.Queryx(SQL, sessionId, adminId)
+	if err != nil {
+		RespondJSON(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	RespondJSON(w, http.StatusCreated, response{
+		Token: sessionId.String(),
+	})
+}
 ///******************  ADMIN ************************************************************//////
 
 func getAdmin(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +214,7 @@ func deleteAsset(w http.ResponseWriter, r *http.Request) {
 
 // *************************** Employee ************************************************************//////
 func getEmployee(w http.ResponseWriter, r *http.Request) {
-	var employees []Emplyoee
+	var employees []Employee
 	SQL := "select id, name, email,role, created_at, archived_at from employee"
 	err := DB.Select(&employees, SQL)
 	if err != nil {
@@ -162,7 +225,7 @@ func getEmployee(w http.ResponseWriter, r *http.Request) {
 	RespondJSON(w, http.StatusOK, employees)
 }
 func addEmployee(w http.ResponseWriter, r *http.Request) {
-	var body Emplyoee
+	var body Employee
 	if err := ParseBody(r.Body, &body); err != nil {
 		RespondJSON(w, http.StatusBadRequest, err)
 		return
@@ -178,7 +241,7 @@ func addEmployee(w http.ResponseWriter, r *http.Request) {
 	RespondJSON(w, http.StatusCreated, nil)
 }
 func deleteEmployee(w http.ResponseWriter, r *http.Request) {
-	var body Emplyoee
+	var body Employee
 	if err := ParseBody(r.Body, &body); err != nil {
 		fmt.Println("error parsing body", err)
 		RespondJSON(w, http.StatusBadRequest, err)
@@ -197,7 +260,7 @@ func deleteEmployee(w http.ResponseWriter, r *http.Request) {
 // *************************** Employee Asset Mapping ************************************************************//////
 func getEmployeeAssetMapping(w http.ResponseWriter, r *http.Request) {
 	var employeeassetmappings []EmployeeAssetMapping
-	SQL := "select id, assetid, emplyoeeid, created_at, archived_at from employeeassetmapping"
+	SQL := "select id, asset_id, employee_id, created_at, archived_at from employeeassetmapping"
 	err := DB.Select(&employeeassetmappings, SQL)
 	if err != nil {
 		fmt.Println("error reading users", err)
@@ -213,8 +276,8 @@ func AssignEmployeeAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	SQL := `insert into employeeassetmapping (id, assetid, emplyoeeid, created_at) values ($1, $2, $3, $4)`
-	_, err := DB.Queryx(SQL, uuid.New(), body.AssetId, body.EmplyoeeID, time.Now())
+	SQL := `insert into employeeassetmapping (id, asset_id, emplyoeeid, created_at) values ($1, $2, $3, $4)`
+	_, err := DB.Queryx(SQL, uuid.New(), body.AssetId, body.EmployeeID, time.Now())
 	if err != nil {
 		RespondJSON(w, http.StatusInternalServerError, err)
 		return
@@ -230,12 +293,25 @@ func returnedAseet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("body", body)
-	SQL := `update employeeassetmapping set archived_at = $1 where id = $2`
-	_, err := DB.Queryx(SQL, time.Now(), body.Id)
-	if err != nil {
-		RespondJSON(w, http.StatusInternalServerError, err)
-		return
+	var existingMapping EmployeeAssetMapping
+	SQL := `select * from employeeassetmapping where asset_id = $1 and archived_at is null and emplyoeeid <> $2`
+	err := DB.Get(&existingMapping, SQL, body.AssetId, body.EmployeeID)
+	if err == nil { // If a mapping with another employee exists
+		// Archive the existing mapping
+		SQL := `update employeeassetmapping set archived_at = $1 where id = $2`
+		_, err = DB.Queryx(SQL, time.Now(), existingMapping.Id)
+		if err != nil {
+			RespondJSON(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
+
+	// SQL := `update employeeassetmapping set archived_at = $1 where id = $2`
+	// _, err := DB.Queryx(SQL, time.Now(), body.Id)
+	// if err != nil {
+	// 	RespondJSON(w, http.StatusInternalServerError, err)
+	// 	return
+	// }
 	RespondJSON(w, http.StatusCreated, nil)
 }
 
@@ -262,8 +338,9 @@ func main() {
 	}
 	router := chi.NewRouter()
 	//**************************  ADMIN ************************************************************//////
-
+	router.Post("/login", login)
 	router.Route("/admin", func(r chi.Router) {
+		
 		r.Get("/", getAdmin)
 		r.Post("/", addAdmin)
 		r.Route("/{id}", func(AdminIdRouter chi.Router) {
